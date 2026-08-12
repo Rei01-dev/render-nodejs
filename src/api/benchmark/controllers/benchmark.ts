@@ -5,6 +5,7 @@ import pidusage from "pidusage";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import dns from "node:dns/promises";
+import { Client as PgClient } from "pg";
 
 
 function getCpuSnapshot() {
@@ -782,19 +783,23 @@ export default {
   },
 
 
+async mysqlInsert(ctx: any) {
+  const provider =
+    process.env.BENCHMARK_PROVIDER ||
+    "Local Development";
 
+  const dbClient =
+    process.env.DATABASE_CLIENT || "mysql";
 
-  async mysqlInsert(ctx: any) {
-
-    const provider =
-      process.env.BENCHMARK_PROVIDER ||
-      "Local Development";
-
-    const BATCH_SIZE = 5000;
+  const BATCH_SIZE = 5000;
 
   const count = Number(
     ctx.request.body.count || 1000
   );
+
+  if (!Number.isInteger(count) || count <= 0) {
+    ctx.throw(400, "Count must be a positive integer.");
+  }
 
   const start = Date.now();
 
@@ -804,41 +809,46 @@ export default {
   const resourceMonitor =
     startResourceMonitor();
 
+  let databaseUsage: {
+    databaseCpu?: number;
+    databasePeakCpu?: number;
+    databaseRam?: number;
+    databasePeakRam?: number;
+  } = {};
 
-    let databaseUsage: {
-      databaseCpu?: number;
-      databasePeakCpu?: number;
-      databaseRam?: number;
-      databasePeakRam?: number;
-    } = {};
+  /*
+   * OS-level database monitoring only makes
+   * sense for the MySQL/MariaDB setup where
+   * we are looking for mariadbd/mysqld.
+   *
+   * Render PostgreSQL is a separate managed
+   * service, so there is no postgres PID
+   * visible to this Node container.
+   */
+  const mysqlPid =
+    dbClient === "mysql"
+      ? await findMySqlPid()
+      : null;
 
-    const mysqlPid =
-      await findMySqlPid();
+  console.log("Database monitoring:", {
+    client: dbClient,
+    host:
+      process.env.DATABASE_HOST ||
+      (process.env.DATABASE_URL
+        ? "DATABASE_URL"
+        : "unknown"),
+    platform: process.platform,
+    mysqlPid,
+  });
 
-    console.log(
-      "Database monitoring:",
-      {
-        host:
-          process.env.DATABASE_HOST ||
-          "127.0.0.1",
-
-        platform:
-          process.platform,
-
-        mysqlPid,
-      }
-    );
-
-    const databaseMonitor =
-      mysqlPid
-        ? startDatabaseMonitor(mysqlPid)
-        : null;
-      
-  
+  const databaseMonitor =
+    mysqlPid
+      ? startDatabaseMonitor(mysqlPid)
+      : null;
 
   // Generate Faker data
   const data: Array<
-  [string, string, string, Date, Date]
+    [string, string, string, Date, Date]
   > = [];
 
   for (let i = 0; i < count; i++) {
@@ -858,79 +868,186 @@ export default {
 
   const dbStart = Date.now();
 
-  let connection;
-
   try {
-    connection = await mysql.createConnection({
-      host: process.env.DATABASE_HOST || "127.0.0.1",
-      port: Number(
-        process.env.DATABASE_PORT || 3306
-      ),
-      user:
-        process.env.DATABASE_USERNAME ||
-        "allinones",
-      password:
-        process.env.DATABASE_PASSWORD,
-      database:
-        process.env.DATABASE_NAME ||
-        "allinones",
-    });
+    /*
+     * =========================
+     * PostgreSQL / Render
+     * =========================
+     */
+    if (dbClient === "postgres") {
+      const pgConnection =
+        new PgClient({
+          connectionString:
+            process.env.DATABASE_URL,
 
+          ssl:
+            process.env.DATABASE_SSL === "true"
+              ? {
+                  rejectUnauthorized:
+                    process.env
+                      .DATABASE_SSL_REJECT_UNAUTHORIZED !==
+                    "false",
+                }
+              : false,
+        });
 
+      await pgConnection.connect();
 
-for (
-  let offset = 0;
-  offset < data.length;
-  offset += BATCH_SIZE
-) {
-  const batch = data.slice(
-    offset,
-    offset + BATCH_SIZE
-  );
+      try {
+        for (
+          let offset = 0;
+          offset < data.length;
+          offset += BATCH_SIZE
+        ) {
+          const batch = data.slice(
+            offset,
+            offset + BATCH_SIZE
+          );
 
-  const placeholders = batch
-    .map(() => "(?, ?, ?, ?, ?)")
-    .join(",");
+          const values: unknown[] = [];
+          const placeholders: string[] = [];
 
-  const values = batch.flat();
+          batch.forEach((row, rowIndex) => {
+            const base = rowIndex * 5;
 
-  console.log(
-    `MySQL batch: ${offset + 1} - ${
-      offset + batch.length
-    } / ${data.length}`
-  );
+            placeholders.push(
+              `($${base + 1}, ` +
+              `$${base + 2}, ` +
+              `$${base + 3}, ` +
+              `$${base + 4}, ` +
+              `$${base + 5})`
+            );
 
-  await connection.execute(
-    `
-    INSERT INTO benchmark_users
-    (
-      name,
-      email,
-      company,
-      created_at,
-      updated_at
-    )
-    VALUES ${placeholders}
-    `,
-    values
-  );
-}
+            values.push(
+              row[0],
+              row[1],
+              row[2],
+              row[3],
+              row[4]
+            );
+          });
 
+          console.log(
+            `PostgreSQL batch: ` +
+            `${offset + 1} - ` +
+            `${offset + batch.length} / ` +
+            `${data.length}`
+          );
+
+          await pgConnection.query(
+            `
+            INSERT INTO benchmark_users
+            (
+              name,
+              email,
+              company,
+              created_at,
+              updated_at
+            )
+            VALUES ${placeholders.join(",")}
+            `,
+            values
+          );
+        }
+      } finally {
+        await pgConnection.end();
+      }
+    }
+
+    /*
+     * =========================
+     * MySQL / MariaDB / Plesk
+     * =========================
+     */
+    else if (dbClient === "mysql") {
+      const connection =
+        await mysql.createConnection({
+          host:
+            process.env.DATABASE_HOST ||
+            "127.0.0.1",
+
+          port: Number(
+            process.env.DATABASE_PORT ||
+            3306
+          ),
+
+          user:
+            process.env.DATABASE_USERNAME ||
+            "allinones",
+
+          password:
+            process.env.DATABASE_PASSWORD,
+
+          database:
+            process.env.DATABASE_NAME ||
+            "allinones",
+        });
+
+      try {
+        for (
+          let offset = 0;
+          offset < data.length;
+          offset += BATCH_SIZE
+        ) {
+          const batch = data.slice(
+            offset,
+            offset + BATCH_SIZE
+          );
+
+          const placeholders = batch
+            .map(
+              () => "(?, ?, ?, ?, ?)"
+            )
+            .join(",");
+
+          const values = batch.flat();
+
+          console.log(
+            `MySQL batch: ` +
+            `${offset + 1} - ` +
+            `${offset + batch.length} / ` +
+            `${data.length}`
+          );
+
+          await connection.execute(
+            `
+            INSERT INTO benchmark_users
+            (
+              name,
+              email,
+              company,
+              created_at,
+              updated_at
+            )
+            VALUES ${placeholders}
+            `,
+            values
+          );
+        }
+      } finally {
+        await connection.end();
+      }
+    }
+
+    else {
+      ctx.throw(
+        400,
+        `Unsupported raw database benchmark: ${dbClient}`
+      );
+    }
   } catch (error) {
-
     console.error(
-      "Raw MySQL benchmark failed:",
+      `Raw ${dbClient} benchmark failed:`,
       error
     );
 
-    ctx.throw(500, error);
+    resourceMonitor.stop();
 
-  } finally {
-
-    if (connection) {
-      await connection.end();
+    if (databaseMonitor) {
+      await databaseMonitor.stop();
     }
 
+    ctx.throw(500, error);
   }
 
   const databaseTime =
@@ -942,32 +1059,41 @@ for (
   const totalTime =
     Date.now() - start;
 
-  const memoryUsed =
-    Number(
-      (
-        Math.max(0, memoryEnd - memoryStart) /
-        1024 /
-        1024
-      ).toFixed(2)
-    );
+  const memoryUsed = Number(
+    (
+      Math.max(
+        0,
+        memoryEnd - memoryStart
+      ) /
+      1024 /
+      1024
+    ).toFixed(2)
+  );
 
-    const resourceUsage =
+  const resourceUsage =
     resourceMonitor.stop();
 
-    databaseUsage =
-      databaseMonitor
-        ? await databaseMonitor.stop()
-        : {};
+  databaseUsage =
+    databaseMonitor
+      ? await databaseMonitor.stop()
+      : {};
 
-  // Save benchmark result
+  const benchmarkName =
+    dbClient === "postgres"
+      ? "Raw PostgreSQL Bulk Insert"
+      : "Raw MySQL Bulk Insert";
+
   await strapi
     .documents(
       "api::benchmark-run.benchmark-run"
     )
     .create({
       data: {
-        name: "Raw MySQL Bulk Insert",
+        name: benchmarkName,
+
+        // Keeping this for frontend compatibility
         type: "mysql_insert",
+
         provider,
         records: count,
         batchSize: BATCH_SIZE,
@@ -976,53 +1102,60 @@ for (
         totalTime,
         memory: memoryUsed,
 
-       applicationCpu:
-        resourceUsage.averageCpu,
+        applicationCpu:
+          resourceUsage.averageCpu,
 
-      applicationPeakCpu:
-        resourceUsage.peakCpu,
+        applicationPeakCpu:
+          resourceUsage.peakCpu,
 
-      applicationRam:
-        resourceUsage.averageRam,
+        applicationRam:
+          resourceUsage.averageRam,
 
-      applicationPeakRam:
-        resourceUsage.peakRam,
+        applicationPeakRam:
+          resourceUsage.peakRam,
 
-      // Actual MySQL server metrics come later
-      // databaseCpu: null,
-      // databasePeakCpu: null,
-      // databaseRam: null,
-      // databasePeakRam: null,
+        ...(databaseUsage.databaseCpu !==
+          undefined && {
+          databaseCpu:
+            databaseUsage.databaseCpu,
+        }),
 
-      ...(databaseUsage.databaseCpu !== undefined && {
-        databaseCpu:
-          databaseUsage.databaseCpu,
-      }),
+        ...(databaseUsage.databasePeakCpu !==
+          undefined && {
+          databasePeakCpu:
+            databaseUsage.databasePeakCpu,
+        }),
 
-      ...(databaseUsage.databasePeakCpu !== undefined && {
-        databasePeakCpu:
-          databaseUsage.databasePeakCpu,
-      }),
+        ...(databaseUsage.databaseRam !==
+          undefined && {
+          databaseRam:
+            databaseUsage.databaseRam,
+        }),
 
-      ...(databaseUsage.databaseRam !== undefined && {
-        databaseRam:
-          databaseUsage.databaseRam,
-      }),
-
-      ...(databaseUsage.databasePeakRam !== undefined && {
-        databasePeakRam:
-          databaseUsage.databasePeakRam,
-      }),
+        ...(databaseUsage.databasePeakRam !==
+          undefined && {
+          databasePeakRam:
+            databaseUsage.databasePeakRam,
+        }),
       },
     });
 
   ctx.body = {
     success: true,
+    databaseClient: dbClient,
     records: count,
-    generationTime: `${generationTime} ms`,
-    databaseTime: `${databaseTime} ms`,
-    totalTime: `${totalTime} ms`,
-    memory: `${memoryUsed} MB`,
+
+    generationTime:
+      `${generationTime} ms`,
+
+    databaseTime:
+      `${databaseTime} ms`,
+
+    totalTime:
+      `${totalTime} ms`,
+
+    memory:
+      `${memoryUsed} MB`,
 
     applicationCpu:
       `${resourceUsage.averageCpu}%`,
@@ -1035,11 +1168,6 @@ for (
 
     applicationPeakRam:
       `${resourceUsage.peakRam}%`,
-
-    // databaseCpu: null,
-    // databasePeakCpu: null,
-    // databaseRam: null,
-    // databasePeakRam: null,
 
     databaseCpu:
       databaseUsage.databaseCpu !== undefined
@@ -1061,17 +1189,19 @@ for (
         ? `${databaseUsage.databasePeakRam} MB`
         : null,
 
-      // TEMPORARY DEBUG
     debug: {
+      databaseClient: dbClient,
       databaseHost:
         process.env.DATABASE_HOST ||
-        "127.0.0.1",
+        (process.env.DATABASE_URL
+          ? "Render internal DATABASE_URL"
+          : null),
 
       platform:
         process.platform,
 
       mysqlPid,
-},
+    },
   };
 },
 
