@@ -1,0 +1,7 @@
+/**
+ * benchmark-run router
+ */
+
+import { factories } from '@strapi/strapi';
+
+export default factories.createCoreRouter('api::benchmark-run.benchmark-run');

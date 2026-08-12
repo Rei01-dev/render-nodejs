@@ -1,0 +1,86 @@
+{
+  "kind": "collectionType",
+  "collectionName": "benchmark_runs",
+  "info": {
+    "singularName": "benchmark-run",
+    "pluralName": "benchmark-runs",
+    "displayName": "Benchmark Run"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "name": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "records": {
+      "type": "integer"
+    },
+    "batchSize": {
+      "type": "integer"
+    },
+    "generationTime": {
+      "type": "decimal"
+    },
+    "databaseTime": {
+      "type": "decimal"
+    },
+    "totalTime": {
+      "type": "decimal"
+    },
+    "memory": {
+      "type": "decimal"
+    },
+
+    
+    "applicationCpu": {
+      "type": "decimal"
+    },
+    "applicationPeakCpu": {
+      "type": "decimal"
+    },
+    "applicationRam": {
+      "type": "decimal"
+    },
+    "applicationPeakRam": {
+      "type": "decimal"
+    },
+    "databaseCpu": {
+      "type": "decimal"
+    },
+    "databasePeakCpu": {
+      "type": "decimal"
+    },
+    "databaseRam": {
+      "type": "decimal"
+    },
+    "databasePeakRam": {
+      "type": "decimal"
+    },
+
+
+    "pagesTested": {
+      "type": "integer"
+    },
+    "pageSize": {
+      "type": "integer"
+    },
+    "averagePageTime": {
+      "type": "decimal"
+    },
+    "fastestPageTime": {
+      "type": "decimal"
+    },
+    "slowestPageTime": {
+      "type": "decimal"
+    }
+
+  }
+}

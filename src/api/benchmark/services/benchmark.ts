@@ -1,0 +1,5 @@
+/**
+ * benchmark service
+ */
+
+export default () => ({});

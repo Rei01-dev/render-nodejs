@@ -1,0 +1,52 @@
+{
+  "name": "allinones",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Strapi application",
+  "scripts": {
+    "build": "strapi build",
+    "console": "strapi console",
+    "deploy": "strapi deploy",
+    "dev": "strapi develop",
+    "develop": "strapi develop",
+    "seed:example": "node ./scripts/seed.js",
+    "start": "strapi start",
+    "strapi": "strapi",
+    "upgrade": "npx @strapi/upgrade latest",
+    "upgrade:dry": "npx @strapi/upgrade latest --dry"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^10.5.0",
+    "@strapi/database": "5.51.2",
+    "@strapi/plugin-cloud": "5.51.2",
+    "@strapi/plugin-users-permissions": "5.51.2",
+    "@strapi/strapi": "5.51.2",
+    "fs-extra": "^10.0.0",
+    "koa-static": "^5.0.0",
+    "mime-types": "^2.1.27",
+    "mysql2": "^3.20.0",
+    "pidusage": "^4.0.1",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.30.3",
+    "sharp": "^0.35.3",
+    "styled-components": "^6.0.0",
+    "uuid": "^14.0.1"
+  },
+  "devDependencies": {
+    "@types/koa-static": "^4.0.4",
+    "@types/node": "^20",
+    "@types/pidusage": "^2.0.5",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20.0.0 <=26.x.x",
+    "npm": ">=6.0.0"
+  },
+  "strapi": {
+    "uuid": "68b8a3a6-73e4-4583-a6da-91f1f15dad40",
+    "installId": "7478425c678d474fc5f4bebb626e65c10d8bb4222aa2a17b88164fbfba97a03e"
+  }
+}

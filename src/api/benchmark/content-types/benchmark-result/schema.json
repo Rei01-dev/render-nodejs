@@ -1,0 +1,26 @@
+{
+  "kind": "collectionType",
+  "collectionName": "benchmark_results",
+  "info": {
+    "singularName": "benchmark-result",
+    "pluralName": "benchmark-results",
+    "displayName": "Benchmark Result"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "attributes": {
+    "name": {
+      "type": "string"
+    },
+    "records": {
+      "type": "integer"
+    },
+    "duration": {
+      "type": "decimal"
+    },
+    "memory": {
+      "type": "decimal"
+    }
+  }
+}
