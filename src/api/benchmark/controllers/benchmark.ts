@@ -156,6 +156,64 @@ function startResourceMonitor() {
   };
 }
 
+
+/**
+ * Monitor this Node.js process memory during a benchmark.
+ * Stores peak RSS (resident set size), which is more useful for
+ * cross-host comparison than endHeap - startHeap.
+ */
+function startProcessMemoryMonitor(intervalMs = 50) {
+  let peakRss = 0;
+  let peakHeapUsed = 0;
+  let rssTotal = 0;
+  let samples = 0;
+  let stopped = false;
+
+  function sample() {
+    if (stopped) {
+      return;
+    }
+
+    const memory = process.memoryUsage();
+
+    peakRss = Math.max(peakRss, memory.rss);
+    peakHeapUsed = Math.max(peakHeapUsed, memory.heapUsed);
+    rssTotal += memory.rss;
+    samples += 1;
+  }
+
+  sample();
+
+  const interval = setInterval(sample, intervalMs);
+
+  return {
+    stop() {
+      if (!stopped) {
+        sample();
+        stopped = true;
+        clearInterval(interval);
+      }
+
+      const averageRss =
+        samples > 0
+          ? rssTotal / samples
+          : 0;
+
+      return {
+        averageRssMb: Number(
+          (averageRss / 1024 / 1024).toFixed(2)
+        ),
+        peakRssMb: Number(
+          (peakRss / 1024 / 1024).toFixed(2)
+        ),
+        peakHeapUsedMb: Number(
+          (peakHeapUsed / 1024 / 1024).toFixed(2)
+        ),
+      };
+    },
+  };
+}
+
 // MySQL PID Finder
 
 
@@ -547,11 +605,11 @@ export default {
 
     const start = Date.now();
 
-    const memoryStart =
-      process.memoryUsage().heapUsed;
-
     const resourceMonitor = 
       startResourceMonitor();
+
+    const processMemoryMonitor =
+      startProcessMemoryMonitor();
 
     let databaseUsage: {
       databaseCpu?: number;
@@ -639,24 +697,16 @@ export default {
       Date.now() - dbStart;
 
 
-    const memoryEnd =
-      process.memoryUsage().heapUsed;
-
-
     const totalTime =
       Date.now() - start;
 
 
+    const processMemoryUsage =
+      processMemoryMonitor.stop();
+
+    // Peak Node.js process RSS in MB.
     const memoryUsed =
-      Number(
-        (
-          Math.max(0, memoryEnd - memoryStart)
-          /
-          1024
-          /
-          1024
-        ).toFixed(2)
-      );
+      processMemoryUsage.peakRssMb;
 
     const resourceUsage =
       resourceMonitor.stop();
@@ -803,11 +853,11 @@ async mysqlInsert(ctx: any) {
 
   const start = Date.now();
 
-  const memoryStart =
-    process.memoryUsage().heapUsed;
-
   const resourceMonitor =
     startResourceMonitor();
+
+  const processMemoryMonitor =
+    startProcessMemoryMonitor();
 
   let databaseUsage: {
     databaseCpu?: number;
@@ -1041,6 +1091,7 @@ async mysqlInsert(ctx: any) {
       error
     );
 
+    processMemoryMonitor.stop();
     resourceMonitor.stop();
 
     if (databaseMonitor) {
@@ -1053,22 +1104,15 @@ async mysqlInsert(ctx: any) {
   const databaseTime =
     Date.now() - dbStart;
 
-  const memoryEnd =
-    process.memoryUsage().heapUsed;
-
   const totalTime =
     Date.now() - start;
 
-  const memoryUsed = Number(
-    (
-      Math.max(
-        0,
-        memoryEnd - memoryStart
-      ) /
-      1024 /
-      1024
-    ).toFixed(2)
-  );
+  const processMemoryUsage =
+    processMemoryMonitor.stop();
+
+  // Peak Node.js process RSS in MB.
+  const memoryUsed =
+    processMemoryUsage.peakRssMb;
 
   const resourceUsage =
     resourceMonitor.stop();
@@ -1241,12 +1285,12 @@ async pageLoad(ctx: any) {
 
   const start = Date.now();
 
-  const memoryStart =
-    process.memoryUsage().heapUsed;
-
   // Application/host monitor
   const resourceMonitor =
     startResourceMonitor();
+
+  const processMemoryMonitor =
+    startProcessMemoryMonitor();
 
 
   // Database process monitor
@@ -1347,6 +1391,7 @@ async pageLoad(ctx: any) {
       await databaseMonitor.stop();
     }
 
+    processMemoryMonitor.stop();
     resourceMonitor.stop();
 
     ctx.throw(500, error);
@@ -1356,20 +1401,12 @@ async pageLoad(ctx: any) {
   const totalTime =
     Date.now() - start;
 
-  const memoryEnd =
-    process.memoryUsage().heapUsed;
+  const processMemoryUsage =
+    processMemoryMonitor.stop();
 
+  // Peak Node.js process RSS in MB.
   const memoryUsed =
-    Number(
-      (
-        Math.max(
-          0,
-          memoryEnd - memoryStart
-        ) /
-        1024 /
-        1024
-      ).toFixed(2)
-    );
+    processMemoryUsage.peakRssMb;
 
 
   const resourceUsage =
